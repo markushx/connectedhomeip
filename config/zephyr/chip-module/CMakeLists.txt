@@ -126,6 +126,14 @@ if(CONFIG_CHIP)
         matter_add_gn_arg_string("target_cpu" "x86")
     elseif(BOARD STREQUAL "native_sim/native/64")
         matter_add_gn_arg_string("target_cpu" "x64")
+    elseif(BOARD MATCHES "^qemu_x86_64")
+        # Not upstream: the chip-gn zephyr toolchain (toolchain/BUILD.gn) never sets
+        # current_cpu, so it falls back to GN's host_cpu default (arm64 on Apple
+        # Silicon), which pulls in ARM-only flags like -mthumb. Force it explicitly
+        # for this novel qemu_x86(_64) port.
+        matter_add_gn_arg_string("target_cpu" "x64")
+    elseif(BOARD MATCHES "^qemu_x86")
+        matter_add_gn_arg_string("target_cpu" "x86")
     endif()
 
     if(CONFIG_CHIP_ENABLE_DNSSD_SRP)

@@ -1,3 +1,19 @@
+# Not upstream: on hosts where CHIP is built against a pre-existing Zephyr
+# workspace (its own venv, its own Python3.x), CMake's find_package(Python3)
+# caches whichever interpreter Zephyr found first, which lacks the pip
+# packages CHIP's bootstrap.sh installs (python_path, jinja2, click, lark,
+# lxml, coloredlogs -- see scripts/setup/requirements.build.txt). Prefer the
+# CHIP bootstrap venv's own interpreter for codegen if it exists, so we don't
+# have to touch (and risk breaking) whatever Python3 Zephyr resolved to.
+# NOTE: deliberately not REALPATH -- fully resolving the symlink chain lands
+# on the raw cipd-deployed interpreter binary, which bypasses the venv's
+# pyvenv.cfg-based site-packages detection (that only kicks in when Python is
+# invoked through the venv's own bin/python3 symlink).
+set(_CHIP_CODEGEN_VENV_PYTHON3 "${CMAKE_CURRENT_LIST_DIR}/../../.environment/pigweed-venv/bin/python3")
+if(EXISTS "${_CHIP_CODEGEN_VENV_PYTHON3}")
+    set(CHIP_CODEGEN_PYTHON3 "${_CHIP_CODEGEN_VENV_PYTHON3}")
+endif()
+
 # Run chip code generation.
 #
 # Example usage:
@@ -34,14 +50,17 @@ function(chip_codegen TARGET_NAME)
     set(CHIP_CODEGEN_PREGEN_DIR "" CACHE PATH "Pre-generated directory to use instead of compile-time code generation.")
 
     # Python is required for code generation
-    find_package(Python3 REQUIRED)
+    if(NOT CHIP_CODEGEN_PYTHON3)
+        find_package(Python3 REQUIRED)
+        set(CHIP_CODEGEN_PYTHON3 "${Python3_EXECUTABLE}")
+    endif()
 
     # Output paths can contain placeholders such as
     # {{defined_cluster_name}} or {{server_cluster_name}}
     #
     # This translates them to the actually fully expanded path.
     execute_process(
-            COMMAND "${Python3_EXECUTABLE}" -X utf8 "${CHIP_ROOT}/scripts/codegen_paths.py" "--idl" "${ARG_INPUT}" ${ARG_OUTPUTS}
+            COMMAND "${CHIP_CODEGEN_PYTHON3}" -X utf8 "${CHIP_ROOT}/scripts/codegen_paths.py" "--idl" "${ARG_INPUT}" ${ARG_OUTPUTS}
             OUTPUT_VARIABLE GENERATED_PATHS_OUT
     )
     string(REPLACE "\n" ";" GENERATED_PATHS "${GENERATED_PATHS_OUT}")
@@ -65,7 +84,7 @@ function(chip_codegen TARGET_NAME)
 
         add_custom_command(
             OUTPUT ${OUT_NAMES}
-            COMMAND "${Python3_EXECUTABLE}" -X utf8 "${CHIP_ROOT}/scripts/codegen.py"
+            COMMAND "${CHIP_CODEGEN_PYTHON3}" -X utf8 "${CHIP_ROOT}/scripts/codegen.py"
             ARGS "--generator" "${ARG_GENERATOR}"
                  "--output-dir" "${GEN_FOLDER}"
                  "--expected-outputs" "${GEN_FOLDER}/expected.outputs"
@@ -212,8 +231,10 @@ function(chip_zapgen TARGET_NAME)
         endif()
 
         # Python is expected to be in the path
-        # Forcing a call to find find_package here as ${Python3_EXECUTABLE} would be used
-        find_package(Python3 REQUIRED)
+        if(NOT CHIP_CODEGEN_PYTHON3)
+            find_package(Python3 REQUIRED)
+            set(CHIP_CODEGEN_PYTHON3 "${Python3_EXECUTABLE}")
+        endif()
         #
         # TODO: lockfile support should be removed as this serializes zap
         # (slower), however this is currently done because on Darwin zap startup
@@ -221,7 +242,7 @@ function(chip_zapgen TARGET_NAME)
         #    Error: EEXIST: file already exists, mkdir '/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T/pkg/465fcc8a6282e28dc7a166859d5814d34e2fb94249a72fa9229033b5b32dff1a'
         add_custom_command(
             OUTPUT ${OUT_NAMES}
-            COMMAND "${Python3_EXECUTABLE}" -X utf8 "${CHIP_ROOT}/scripts/tools/zap/generate.py"
+            COMMAND "${CHIP_CODEGEN_PYTHON3}" -X utf8 "${CHIP_ROOT}/scripts/tools/zap/generate.py"
             ARGS ${ZAPGEN_ARGS}
             DEPENDS
                 "${ARG_INPUT}"

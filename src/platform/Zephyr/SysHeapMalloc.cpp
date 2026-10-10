@@ -74,7 +74,18 @@ int InitSysHeapMalloc()
 
 // Initialize the heap in the POST_KERNEL phase to make sure that it is ready even before
 // C++ static constructors are called (which happens prior to the APPLICATION initialization phase).
-SYS_INIT(InitSysHeapMalloc, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+//
+// Not upstream: this must run before anything else that allocates through the
+// wrapped malloc/calloc/realloc/free at POST_KERNEL. Zephyr's own mbedTLS
+// SYS_INIT hook (_mbedtls_init, zephyr/modules/mbedtls/zephyr_init.c) seeds
+// the PSA DRBG here too, which allocates via calloc -- and it registers at
+// the same (POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT) level/priority,
+// making the two SYS_INIT calls' relative order link-order-dependent. When
+// mbedtls's happened to run first, it allocated out of this heap before
+// sys_heap_init() ever ran, corrupting memory (a null-ish pointer deref deep
+// in sys_heap, several frames of misdirection away from the real cause).
+// Use the lowest priority so this always runs first regardless of link order.
+SYS_INIT(InitSysHeapMalloc, POST_KERNEL, 0);
 
 namespace chip {
 namespace DeviceLayer {
